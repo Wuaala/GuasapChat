@@ -6,12 +6,57 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
+<!-- New robust parsing modules -->
+<script src="text-normalizer.js"></script>
+<script src="date-parser.js"></script>
+<script src="date-normalizer.js"></script>
+<script src="zip-validator.js"></script>
+
 <style>
 body {
     font-family: "Segoe UI", Arial, sans-serif;
     background: #ece5dd;
     padding: 20px;
 }
+
+.container {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+.section {
+    background: white;
+    padding: 20px;
+    margin: 20px 0;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.validation-result {
+    padding: 10px;
+    margin: 10px 0;
+    border-radius: 4px;
+    border-left: 4px solid;
+}
+
+.validation-result.success {
+    background: #d4edda;
+    border-color: #28a745;
+    color: #155724;
+}
+
+.validation-result.error {
+    background: #f8d7da;
+    border-color: #dc3545;
+    color: #721c24;
+}
+
+.validation-result.warning {
+    background: #fff3cd;
+    border-color: #ffc107;
+    color: #856404;
+}
+
 .day-separator {
     text-align: center;
     margin: 20px 0;
@@ -19,6 +64,7 @@ body {
     color: #555;
     font-weight: bold;
 }
+
 .msg {
     max-width: 60%;
     padding: 6px 10px;
@@ -29,11 +75,13 @@ body {
     line-height: 1.25;
     box-shadow: 0 1px 1px rgba(0,0,0,0.1);
 }
+
 .me {
     background: #d9fdd3;
     margin-left: auto;
     border-bottom-right-radius: 0;
 }
+
 .me::after {
     content: "";
     position: absolute;
@@ -42,11 +90,13 @@ body {
     border-left: 8px solid #d9fdd3;
     border-top: 8px solid transparent;
 }
+
 .them {
     background: #ffffff;
     margin-right: auto;
     border-bottom-left-radius: 0;
 }
+
 .them::after {
     content: "";
     position: absolute;
@@ -55,54 +105,273 @@ body {
     border-right: 8px solid #ffffff;
     border-top: 8px solid transparent;
 }
+
 .msg-time {
     font-size: 11px;
     color: #777;
     float: right;
     margin-left: 8px;
 }
+
 .checks {
     color: #34b7f1;
     font-size: 13px;
     margin-left: 4px;
 }
+
 .voice-note {
     display: flex;
     align-items: center;
     gap: 10px;
     margin-top: 6px;
 }
+
 .voice-note audio {
     width: 260px;
     height: 36px;
 }
+
 .mic-icon {
     font-size: 22px;
     opacity: 0.7;
+}
+
+button {
+    background: #25d366;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    margin: 5px 0;
+}
+
+button:hover {
+    background: #20ba5a;
+}
+
+button:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+}
+
+textarea, input[type="file"] {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-family: monospace;
+}
+
+.loading {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #25d366;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.stats {
+    font-size: 12px;
+    color: #666;
+    margin-top: 10px;
 }
 </style>
 </head>
 
 <body>
 
-<h2>Convertidor WhatsApp ZIP → HTML (Compatible con todo)</h2>
+<div class="container">
+    <h1>🔒 Convertidor WhatsApp ZIP → HTML (Robusto y Seguro)</h1>
 
-<p>Sube tu archivo ZIP exportado desde WhatsApp:</p>
-<input type="file" id="zipInput" accept=".zip">
+    <div class="section">
+        <h2>Paso 1: Validación de ZIP</h2>
+        <p>Sube tu archivo ZIP exportado desde WhatsApp:</p>
+        <input type="file" id="zipInput" accept=".zip">
+        <div id="zipValidation"></div>
+    </div>
 
-<p>O pega el .txt manualmente:</p>
-<textarea id="input" style="width:100%;height:200px;"></textarea>
-<br>
-<button id="convert">Convertir</button>
+    <div class="section">
+        <h2>Paso 2: Contenido del Chat</h2>
+        <p>O pega el .txt manualmente (será normalizado automáticamente):</p>
+        <textarea id="input" style="width:100%;height:200px;"></textarea>
+        <div id="normalizationStatus"></div>
+    </div>
 
-<h2>Resultado:</h2>
-<div id="output"></div>
+    <div class="section">
+        <button id="convert">🔄 Convertir Chat</button>
+        <div id="conversionStatus"></div>
+    </div>
+
+    <div class="section">
+        <h2>Resultado:</h2>
+        <div id="output"></div>
+    </div>
+</div>
 
 <script>
 let zipChatText = null;
 let zipMediaFiles = {};
+let currentDateFormat = 'DD/MM'; // Will be determined by guessing
 
-// Convertir archivo a Base64
+// ===============================
+// 1. ZIP Loading with Validation
+// ===============================
+
+document.getElementById("zipInput").addEventListener("change", async function(e) {
+    const file = e.target.files[0];
+    const validationDiv = document.getElementById("zipValidation");
+    
+    if (!file) {
+        validationDiv.innerHTML = '';
+        return;
+    }
+
+    // Show loading
+    validationDiv.innerHTML = '<div class="loading"></div> Validando ZIP...';
+
+    try {
+        // Phase 1: Validate MIME and size
+        const mimeValid = await ZIPValidator.validateMIME(file);
+        const sizeValid = ZIPValidator.validateFileSize(file);
+
+        if (!mimeValid) {
+            validationDiv.innerHTML = '<div class="validation-result error">❌ Error: El archivo no es un ZIP válido (magic bytes inválidos)</div>';
+            return;
+        }
+
+        if (!sizeValid) {
+            validationDiv.innerHTML = '<div class="validation-result error">❌ Error: El archivo es demasiado grande (máximo 100 MB)</div>';
+            return;
+        }
+
+        // Phase 2: Load and validate ZIP structure
+        const jszip = new JSZip();
+        const arrayBuffer = await file.arrayBuffer();
+        const zip = await jszip.loadAsync(arrayBuffer);
+
+        // Run full validation
+        const validation = await ZIPValidator.validateZip(file, zip, {
+            maxFileSize: ZIPValidator.ZIP_CONFIG.MAX_FILE_SIZE
+        });
+
+        if (!validation.valid) {
+            const errorMsg = validation.errors.join('<br>');
+            validationDiv.innerHTML = `<div class="validation-result error">❌ Errores:<br>${errorMsg}</div>`;
+            return;
+        }
+
+        // Phase 3: Extract content
+        zipChatText = null;
+        zipMediaFiles = {};
+
+        const dateSamples = [];
+
+        for (const path in zip.files) {
+            const entry = zip.files[path];
+
+            // Validate path
+            if (!ZIPValidator.validateFilePath(path)) {
+                console.warn(`Skipping unsafe path: ${path}`);
+                continue;
+            }
+
+            let clean = path.split("/").pop();
+            clean = TextNormalizer.normalizeText(clean);
+            const lower = clean.toLowerCase();
+
+            // Extract text file
+            if (lower.endsWith(".txt")) {
+                let text = await entry.async("string");
+                text = TextNormalizer.normalizeChatText(text);
+                zipChatText = text;
+
+                // Collect date samples for format detection
+                const lines = text.split('\n');
+                lines.slice(0, 10).forEach(line => {
+                    const dateMatch = line.match(/(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4})/);
+                    if (dateMatch) {
+                        dateSamples.push(dateMatch[1]);
+                    }
+                });
+                continue;
+            }
+
+            // Extract media files
+            const isMedia =
+                lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
+                lower.endsWith(".png") || lower.endsWith(".gif") ||
+                lower.endsWith(".mp4") || lower.endsWith(".mp3") ||
+                lower.endsWith(".wav") || lower.endsWith(".opus") ||
+                lower.endsWith(".pdf") || lower.endsWith(".vcf");
+
+            if (isMedia && !entry.dir) {
+                const blob = await entry.async("blob");
+                const base64 = await blobToBase64(blob);
+                zipMediaFiles[clean] = base64;
+            }
+        }
+
+        // Guess date format from samples
+        if (dateSamples.length > 0) {
+            currentDateFormat = DateParser.guessDateFormatFromSamples(dateSamples);
+        }
+
+        // Show success
+        let successMsg = `✅ ZIP válido - ${validation.metadata.totalFiles} archivos`;
+        if (validation.metadata.duplicates && Object.keys(validation.metadata.duplicates).length > 0) {
+            successMsg += `<br>⚠️ Duplicados encontrados: ${Object.keys(validation.metadata.duplicates).length}`;
+        }
+        if (validation.warnings.length > 0) {
+            successMsg += `<br>⚠️ ${validation.warnings.join('<br>⚠️ ')}`;
+        }
+
+        validationDiv.innerHTML = `<div class="validation-result success">${successMsg}</div>`;
+
+        // Load text into textarea
+        if (zipChatText) {
+            document.getElementById("input").value = zipChatText;
+        } else {
+            validationDiv.innerHTML += '<div class="validation-result warning">⚠️ No se encontró archivo .txt dentro del ZIP</div>';
+        }
+
+    } catch (error) {
+        validationDiv.innerHTML = `<div class="validation-result error">❌ Error al procesar ZIP:<br>${error.message}</div>`;
+        console.error('ZIP processing error:', error);
+    }
+});
+
+// ===============================
+// 2. Text Normalization on Input
+// ===============================
+
+document.getElementById("input").addEventListener("blur", function() {
+    const statusDiv = document.getElementById("normalizationStatus");
+    const originalLength = this.value.length;
+
+    const normalized = TextNormalizer.normalizeChatText(this.value);
+    const newLength = normalized.value.length;
+
+    if (originalLength !== newLength) {
+        statusDiv.innerHTML = `<div class="validation-result success">✅ Texto normalizado (${originalLength} → ${newLength} caracteres)</div>`;
+        this.value = normalized;
+    } else {
+        statusDiv.innerHTML = '';
+    }
+});
+
+// ===============================
+// 3. Helper Functions
+// ===============================
+
 function blobToBase64(blob) {
     return new Promise(resolve => {
         const reader = new FileReader();
@@ -111,58 +380,8 @@ function blobToBase64(blob) {
     });
 }
 
-// ===============================
-// 1. Cargar ZIP y extraer contenido (Base64 universal)
-// ===============================
-document.getElementById("zipInput").addEventListener("change", async function(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const jszip = new JSZip();
-    const arrayBuffer = await file.arrayBuffer();
-    const zip = await jszip.loadAsync(arrayBuffer);
-
-    zipChatText = null;
-    zipMediaFiles = {};
-
-    for (const path in zip.files) {
-        const entry = zip.files[path];
-
-        let clean = path.split("/").pop();
-        clean = clean.replace(/[\u200E\u200F\u202A-\u202E]/g, "").trim();
-        const lower = clean.toLowerCase();
-
-        if (lower.endsWith(".txt")) {
-            zipChatText = await entry.async("string");
-            continue;
-        }
-
-        const isMedia =
-            lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
-            lower.endsWith(".png") || lower.endsWith(".gif") ||
-            lower.endsWith(".mp4") || lower.endsWith(".mp3") ||
-            lower.endsWith(".wav") || lower.endsWith(".opus") ||
-            lower.endsWith(".pdf") || lower.endsWith(".vcf");
-
-        if (isMedia && !entry.dir) {
-            const blob = await entry.async("blob");
-            const base64 = await blobToBase64(blob);
-            zipMediaFiles[clean] = base64;
-        }
-    }
-
-    if (zipChatText) {
-        document.getElementById("input").value = zipChatText;
-    } else {
-        alert("No se encontró ningún archivo .txt dentro del ZIP");
-    }
-});
-
-// ===============================
-// 2. Coincidencia flexible
-// ===============================
 function getMediaURL(filename) {
-    filename = filename.replace(/[\u200E\u200F\u202A-\u202E]/g, "").trim();
+    filename = TextNormalizer.normalizeText(filename);
 
     if (zipMediaFiles[filename]) return zipMediaFiles[filename];
 
@@ -180,82 +399,206 @@ function getMediaURL(filename) {
 }
 
 // ===============================
-// 3. Convertir chat
+// 4. Robust Message Parsing
 // ===============================
-document.getElementById("convert").onclick = function() {
 
+document.getElementById("convert").onclick = function() {
+    const statusDiv = document.getElementById("conversionStatus");
     const raw = document.getElementById("input").value.split("\n");
 
-    const msgRegex = /^(\d{1,2}\/\d{1,2}\/\d{2}), (\d{1,2}:\d{2}) - (.*?): (.*)$/;
-    const fileRegex = /(.*?\.(jpg|jpeg|png|gif|pdf|opus|mp3|mp4|wav|vcf))(?: \(.+\))?$/i;
+    statusDiv.innerHTML = '<div class="loading"></div> Parseando chat...';
 
-    let messages = [];
-    let current = null;
+    try {
+        let messages = [];
+        let current = null;
+        let lastDate = null;
+        let parseErrors = [];
 
-    raw.forEach(line => {
-        line = line.replace(/[\u200E\u200F\u202A-\u202E]/g, "").trim();
+        raw.forEach((line, lineNum) => {
+            // Normalize line
+            line = TextNormalizer.normalizeText(line);
 
-        const msgMatch = line.match(msgRegex);
-        if (msgMatch) {
-            if (current) messages.push(current);
+            // Try to parse as message header with multi-format support
+            const headerMatch = tryParseMessageHeader(line, currentDateFormat);
 
-            const fecha = msgMatch[1];
-            const hora = msgMatch[2];
-            const remitente = msgMatch[3];
-            const texto = msgMatch[4];
+            if (headerMatch) {
+                if (current) messages.push(current);
 
-            const clase = remitente.toLowerCase().includes("iván") ||
-                          remitente.toLowerCase().includes("ivan") ||
-                          remitente.toLowerCase().includes("piscis")
-                          ? "me" : "them";
+                if (headerMatch.date) {
+                    lastDate = headerMatch.date;
+                }
+                const fecha = headerMatch.date || lastDate || "1900-01-01";
 
-            current = {
-                fecha,
-                hora,
-                remitente,
-                clase,
-                texto,
-                adjuntos: []
+                const clase = headerMatch.sender.toLowerCase().includes("iván") ||
+                              headerMatch.sender.toLowerCase().includes("ivan") ||
+                              headerMatch.sender.toLowerCase().includes("piscis")
+                              ? "me" : "them";
+
+                current = {
+                    fecha,
+                    hora: headerMatch.time,
+                    remitente: headerMatch.sender,
+                    clase,
+                    texto: headerMatch.text,
+                    adjuntos: []
+                };
+                return;
+            }
+
+            // Try to detect file attachment
+            const fileMatch = line.match(/(.*?\.(jpg|jpeg|png|gif|pdf|opus|mp3|mp4|wav|vcf))(?: \(.+\))?$/i);
+            if (fileMatch && current) {
+                const filename = fileMatch[1].trim();
+                current.adjuntos.push(filename);
+                return;
+            }
+
+            // Continuation of message text
+            if (current) {
+                current.texto += "\n" + line;
+            }
+        });
+
+        if (current) messages.push(current);
+
+        // Render messages
+        renderMessages(messages);
+        
+        statusDiv.innerHTML = `<div class="validation-result success">✅ Chat parseado: ${messages.length} mensajes</div>`;
+
+    } catch (error) {
+        statusDiv.innerHTML = `<div class="validation-result error">❌ Error al parsear:<br>${error.message}</div>`;
+        console.error('Parse error:', error);
+    }
+};
+
+// ===============================
+// 5. Multi-Format Date Parser
+// ===============================
+
+function tryParseMessageHeader(line, preferredFormat = 'DD/MM') {
+    // Try multiple regex patterns for different WhatsApp formats
+    
+    // Pattern 1: DD/MM/YYYY, HH:MM:SS - Nombre: Texto (Android)
+    let match = line.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}),\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s+-\s+(.*?):\s*(.*)$/);
+    if (match) {
+        const [, day, month, year, hour, min, sec, sender, text] = match;
+        const isoDate = DateNormalizer.normalizeDateTime(
+            `${day}/${month}/${year}`,
+            `${hour}:${min}:${sec || '00'}`
+        );
+        if (isoDate) {
+            return {
+                date: isoDate.split('T')[0],
+                time: isoDate.split('T')[1] || `${hour}:${min}:00`,
+                sender: sender.trim(),
+                text: text
             };
-            return;
         }
-
-        const fileMatch = line.match(fileRegex);
-        if (fileMatch && current) {
-            const filename = fileMatch[1].trim();
-            current.adjuntos.push(filename);
-            return;
-        }
-
-        if (current) current.texto += "\n" + line;
-    });
-
-    if (current) messages.push(current);
-
-    function formatDate(d) {
-        const [day, month, year] = d.split("/");
-        return `20${year}-${month}-${day}`;
     }
 
+    // Pattern 2: DD/MM/YY, HH:MM - Nombre: Texto (Android short)
+    match = line.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}),\s+(\d{1,2}):(\d{2})\s+-\s+(.*?):\s*(.*)$/);
+    if (match) {
+        const [, day, month, year, hour, min, sender, text] = match;
+        const isoDate = DateNormalizer.normalizeDateTime(
+            `${day}/${month}/${year}`,
+            `${hour}:${min}:00`
+        );
+        if (isoDate) {
+            return {
+                date: isoDate.split('T')[0],
+                time: isoDate.split('T')[1] || `${hour}:${min}:00`,
+                sender: sender.trim(),
+                text: text
+            };
+        }
+    }
+
+    // Pattern 3: [DD/MM/YYYY, HH:MM:SS] Nombre: Texto (iPhone)
+    match = line.match(/^\[(\d{1,2})\/(\d{1,2})\/(\d{4}),\s+(\d{1,2}):(\d{2}):(\d{2})\]\s+(.*?):\s*(.*)$/);
+    if (match) {
+        const [, day, month, year, hour, min, sec, sender, text] = match;
+        const isoDate = DateNormalizer.normalizeDateTime(
+            `${day}/${month}/${year}`,
+            `${hour}:${min}:${sec}`
+        );
+        if (isoDate) {
+            return {
+                date: isoDate.split('T')[0],
+                time: isoDate.split('T')[1] || `${hour}:${min}:${sec}`,
+                sender: sender.trim(),
+                text: text
+            };
+        }
+    }
+
+    // Pattern 4: DD.MM.YYYY, HH:MM - Nombre: Texto (German)
+    match = line.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4}),\s+(\d{1,2}):(\d{2})\s+-\s+(.*?):\s*(.*)$/);
+    if (match) {
+        const [, day, month, year, hour, min, sender, text] = match;
+        const isoDate = DateNormalizer.normalizeDateTime(
+            `${day}.${month}.${year}`,
+            `${hour}:${min}:00`
+        );
+        if (isoDate) {
+            return {
+                date: isoDate.split('T')[0],
+                time: isoDate.split('T')[1] || `${hour}:${min}:00`,
+                sender: sender.trim(),
+                text: text
+            };
+        }
+    }
+
+    // Pattern 5: YYYY-MM-DD, HH:MM:SS - Nombre: Texto (ISO)
+    match = line.match(/^(\d{4})-(\d{1,2})-(\d{1,2}),\s+(\d{1,2}):(\d{2}):(\d{2})\s+-\s+(.*?):\s*(.*)$/);
+    if (match) {
+        const [, year, month, day, hour, min, sec, sender, text] = match;
+        const isoDate = DateNormalizer.normalizeDateTime(
+            `${day}.${month}.${year}`,
+            `${hour}:${min}:${sec}`
+        );
+        if (isoDate) {
+            return {
+                date: isoDate.split('T')[0],
+                time: isoDate.split('T')[1] || `${hour}:${min}:${sec}`,
+                sender: sender.trim(),
+                text: text
+            };
+        }
+    }
+
+    return null;
+}
+
+// ===============================
+// 6. Message Rendering
+// ===============================
+
+function renderMessages(messages) {
     let html = "";
     let lastDay = "";
 
     messages.forEach(msg => {
+        const dayKey = msg.fecha;
 
-        const dayKey = formatDate(msg.fecha);
-
-        if (dayKey !== lastDay) {
-            const dateObj = new Date(dayKey);
-            const readable = dateObj.toLocaleDateString("es-ES", {
-                day: "numeric", month: "long", year: "numeric"
-            });
-            html += `<div class="day-separator">${readable}</div>`;
+        if (dayKey !== lastDay && dayKey !== "1900-01-01") {
+            try {
+                const dateObj = new Date(dayKey + 'T00:00:00');
+                const readable = dateObj.toLocaleDateString("es-ES", {
+                    day: "numeric", month: "long", year: "numeric"
+                });
+                html += `<div class="day-separator">${readable}</div>`;
+            } catch (e) {
+                html += `<div class="day-separator">${dayKey}</div>`;
+            }
             lastDay = dayKey;
         }
 
         html += `
         <div class="msg ${msg.clase}">
-          <div class="remitente">${msg.remitente}</div>
+          <div><strong>${msg.remitente}</strong></div>
           <div class="texto">${msg.texto.replace(/\n/g, "<br>")}</div>
         `;
 
@@ -295,7 +638,7 @@ document.getElementById("convert").onclick = function() {
     });
 
     document.getElementById("output").innerHTML = html;
-};
+}
 </script>
 
 </body>
