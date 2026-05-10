@@ -10,7 +10,7 @@
  */
 
 // ===============================
-// Phase 1: Core Normalization Functions
+// Phase 1: Invisible Characters & Unicode
 // ===============================
 
 /**
@@ -82,8 +82,75 @@ function normalizeToNFC(text) {
     return text;
 }
 
+// ===============================
+// Phase 2: Line Endings & Whitespace
+// ===============================
+
 /**
- * Trim whitespace from both ends and internal extra spaces
+ * Normalize line endings to LF (Unix standard)
+ * 
+ * Converts:
+ * - CRLF (Windows: \r\n) → LF (\n)
+ * - CR (old Mac: \r) → LF (\n)
+ * 
+ * Preserves multiple consecutive newlines (for paragraph separation in chats)
+ * 
+ * @param {string} text - Input text
+ * @returns {string} Text with normalized line endings
+ */
+function normalizeLineEndings(text) {
+    if (!text || typeof text !== 'string') {
+        return '';
+    }
+
+    // First convert CRLF to LF (must come before CR)
+    text = text.replace(/\r\n/g, '\n');
+    
+    // Then convert remaining CR to LF
+    text = text.replace(/\r/g, '\n');
+    
+    return text;
+}
+
+/**
+ * Normalize whitespace characters
+ * 
+ * Converts special spaces to regular spaces:
+ * - Non-breaking space (NBSP: U+00A0)
+ * - Thin space (U+2009)
+ * - Em space (U+2003)
+ * - En space (U+2002)
+ * - Figure space (U+2007)
+ * - Hair space (U+200A)
+ * - Ideographic space (U+3000)
+ * 
+ * Handles tabs and multiple consecutive spaces:
+ * - Tabs → single space
+ * - Multiple spaces → single space (except at line start for intentional indentation)
+ * 
+ * @param {string} text - Input text
+ * @returns {string} Text with normalized whitespace
+ */
+function normalizeWhitespace(text) {
+    if (!text || typeof text !== 'string') {
+        return '';
+    }
+
+    // Convert special space characters to regular spaces
+    text = text.replace(/[\u00A0\u2002\u2003\u2007\u2009\u200A\u3000]/g, ' ');
+    
+    // Convert tabs to single spaces
+    text = text.replace(/\t/g, ' ');
+    
+    // Replace multiple consecutive spaces with single space
+    // BUT: preserve indentation at start of lines (spaces after newline)
+    text = text.replace(/([^\n ]) {2,}/g, '$1 ');
+    
+    return text;
+}
+
+/**
+ * Trim whitespace from both ends
  * 
  * @param {string} text - Input text
  * @returns {string} Trimmed text
@@ -96,17 +163,23 @@ function trimText(text) {
 }
 
 // ===============================
-// Main Orchestrator (Phase 1)
+// Main Orchestrator (Phase 1 + 2)
 // ===============================
 
 /**
- * Apply Phase 1 normalization: invisible chars + NFC
+ * Apply full text normalization: Phase 1 + Phase 2
+ * 
+ * Order of operations:
+ * 1. Remove invisible characters (BOM, direction marks, zero-width chars)
+ * 2. Normalize to NFC (Unicode composition)
+ * 3. Normalize line endings (CRLF/CR → LF)
+ * 4. Normalize whitespace (special spaces, tabs)
+ * 5. Trim edges
  * 
  * This is the primary entry point for text normalization.
- * Additional phases will be added as separate functions.
  * 
  * @param {string} text - Input text
- * @returns {string} Normalized text
+ * @returns {string} Fully normalized text
  */
 function normalizeText(text) {
     if (!text || typeof text !== 'string') {
@@ -119,7 +192,13 @@ function normalizeText(text) {
     // Phase 1: Normalize to NFC
     normalized = normalizeToNFC(normalized);
 
-    // Phase 1: Trim edges
+    // Phase 2: Normalize line endings
+    normalized = normalizeLineEndings(normalized);
+
+    // Phase 2: Normalize whitespace
+    normalized = normalizeWhitespace(normalized);
+
+    // Final: Trim edges
     normalized = trimText(normalized);
 
     return normalized;
@@ -147,6 +226,8 @@ function normalizeLines(lines) {
 /**
  * Normalize a chat text string (split by newlines)
  * 
+ * Processes the full chat text while preserving line structure.
+ * 
  * @param {string} chatText - Full chat text
  * @returns {string} Normalized chat text
  */
@@ -155,9 +236,10 @@ function normalizeChatText(chatText) {
         return '';
     }
 
-    const lines = chatText.split('\n');
-    const normalized = normalizeLines(lines);
-    return normalized.join('\n');
+    // Normalize the entire text (handles line endings, whitespace, etc.)
+    const normalized = normalizeText(chatText);
+    
+    return normalized;
 }
 
 // ===============================
@@ -169,6 +251,8 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         removeInvisibleChars,
         normalizeToNFC,
+        normalizeLineEndings,
+        normalizeWhitespace,
         trimText,
         normalizeText,
         normalizeLines,
@@ -181,6 +265,8 @@ if (typeof window !== 'undefined') {
     window.TextNormalizer = {
         removeInvisibleChars,
         normalizeToNFC,
+        normalizeLineEndings,
+        normalizeWhitespace,
         trimText,
         normalizeText,
         normalizeLines,
