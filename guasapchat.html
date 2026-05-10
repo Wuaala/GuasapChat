@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>WhatsApp ZIP → HTML (Compatible con todo)</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+<style>
+body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: #ece5dd;
+    padding: 20px;
+}
+.day-separator {
+    text-align: center;
+    margin: 20px 0;
+    font-size: 13px;
+    color: #555;
+    font-weight: bold;
+}
+.msg {
+    max-width: 60%;
+    padding: 6px 10px;
+    margin: 6px 0;
+    border-radius: 8px;
+    position: relative;
+    white-space: pre-line;
+    line-height: 1.25;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+}
+.me {
+    background: #d9fdd3;
+    margin-left: auto;
+    border-bottom-right-radius: 0;
+}
+.me::after {
+    content: "";
+    position: absolute;
+    right: -8px;
+    bottom: 0;
+    border-left: 8px solid #d9fdd3;
+    border-top: 8px solid transparent;
+}
+.them {
+    background: #ffffff;
+    margin-right: auto;
+    border-bottom-left-radius: 0;
+}
+.them::after {
+    content: "";
+    position: absolute;
+    left: -8px;
+    bottom: 0;
+    border-right: 8px solid #ffffff;
+    border-top: 8px solid transparent;
+}
+.msg-time {
+    font-size: 11px;
+    color: #777;
+    float: right;
+    margin-left: 8px;
+}
+.checks {
+    color: #34b7f1;
+    font-size: 13px;
+    margin-left: 4px;
+}
+.voice-note {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+}
+.voice-note audio {
+    width: 260px;
+    height: 36px;
+}
+.mic-icon {
+    font-size: 22px;
+    opacity: 0.7;
+}
+</style>
+</head>
+
+<body>
+
+<h2>Convertidor WhatsApp ZIP → HTML (Compatible con todo)</h2>
+
+<p>Sube tu archivo ZIP exportado desde WhatsApp:</p>
+<input type="file" id="zipInput" accept=".zip">
+
+<p>O pega el .txt manualmente:</p>
+<textarea id="input" style="width:100%;height:200px;"></textarea>
+<br>
+<button id="convert">Convertir</button>
+
+<h2>Resultado:</h2>
+<div id="output"></div>
+
+<script>
+let zipChatText = null;
+let zipMediaFiles = {};
+
+// Convertir archivo a Base64
+function blobToBase64(blob) {
+    return new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+    });
+}
+
+// ===============================
+// 1. Cargar ZIP y extraer contenido (Base64 universal)
+// ===============================
+document.getElementById("zipInput").addEventListener("change", async function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const jszip = new JSZip();
+    const arrayBuffer = await file.arrayBuffer();
+    const zip = await jszip.loadAsync(arrayBuffer);
+
+    zipChatText = null;
+    zipMediaFiles = {};
+
+    for (const path in zip.files) {
+        const entry = zip.files[path];
+
+        let clean = path.split("/").pop();
+        clean = clean.replace(/[\u200E\u200F\u202A-\u202E]/g, "").trim();
+        const lower = clean.toLowerCase();
+
+        if (lower.endsWith(".txt")) {
+            zipChatText = await entry.async("string");
+            continue;
+        }
+
+        const isMedia =
+            lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
+            lower.endsWith(".png") || lower.endsWith(".gif") ||
+            lower.endsWith(".mp4") || lower.endsWith(".mp3") ||
+            lower.endsWith(".wav") || lower.endsWith(".opus") ||
+            lower.endsWith(".pdf") || lower.endsWith(".vcf");
+
+        if (isMedia && !entry.dir) {
+            const blob = await entry.async("blob");
+            const base64 = await blobToBase64(blob);
+            zipMediaFiles[clean] = base64;
+        }
+    }
+
+    if (zipChatText) {
+        document.getElementById("input").value = zipChatText;
+    } else {
+        alert("No se encontró ningún archivo .txt dentro del ZIP");
+    }
+});
+
+// ===============================
+// 2. Coincidencia flexible
+// ===============================
+function getMediaURL(filename) {
+    filename = filename.replace(/[\u200E\u200F\u202A-\u202E]/g, "").trim();
+
+    if (zipMediaFiles[filename]) return zipMediaFiles[filename];
+
+    const base = filename.split(".")[0].toLowerCase();
+    const ext = filename.split(".").pop().toLowerCase();
+
+    for (const realName in zipMediaFiles) {
+        const realLower = realName.toLowerCase();
+        if (realLower.startsWith(base) && realLower.endsWith(ext)) {
+            return zipMediaFiles[realName];
+        }
+    }
+
+    return null;
+}
+
+// ===============================
+// 3. Convertir chat
+// ===============================
+document.getElementById("convert").onclick = function() {
+
+    const raw = document.getElementById("input").value.split("\n");
+
+    const msgRegex = /^(\d{1,2}\/\d{1,2}\/\d{2}), (\d{1,2}:\d{2}) - (.*?): (.*)$/;
+    const fileRegex = /(.*?\.(jpg|jpeg|png|gif|pdf|opus|mp3|mp4|wav|vcf))(?: \(.+\))?$/i;
+
+    let messages = [];
+    let current = null;
+
+    raw.forEach(line => {
+        line = line.replace(/[\u200E\u200F\u202A-\u202E]/g, "").trim();
+
+        const msgMatch = line.match(msgRegex);
+        if (msgMatch) {
+            if (current) messages.push(current);
+
+            const fecha = msgMatch[1];
+            const hora = msgMatch[2];
+            const remitente = msgMatch[3];
+            const texto = msgMatch[4];
+
+            const clase = remitente.toLowerCase().includes("iván") ||
+                          remitente.toLowerCase().includes("ivan") ||
+                          remitente.toLowerCase().includes("piscis")
+                          ? "me" : "them";
+
+            current = {
+                fecha,
+                hora,
+                remitente,
+                clase,
+                texto,
+                adjuntos: []
+            };
+            return;
+        }
+
+        const fileMatch = line.match(fileRegex);
+        if (fileMatch && current) {
+            const filename = fileMatch[1].trim();
+            current.adjuntos.push(filename);
+            return;
+        }
+
+        if (current) current.texto += "\n" + line;
+    });
+
+    if (current) messages.push(current);
+
+    function formatDate(d) {
+        const [day, month, year] = d.split("/");
+        return `20${year}-${month}-${day}`;
+    }
+
+    let html = "";
+    let lastDay = "";
+
+    messages.forEach(msg => {
+
+        const dayKey = formatDate(msg.fecha);
+
+        if (dayKey !== lastDay) {
+            const dateObj = new Date(dayKey);
+            const readable = dateObj.toLocaleDateString("es-ES", {
+                day: "numeric", month: "long", year: "numeric"
+            });
+            html += `<div class="day-separator">${readable}</div>`;
+            lastDay = dayKey;
+        }
+
+        html += `
+        <div class="msg ${msg.clase}">
+          <div class="remitente">${msg.remitente}</div>
+          <div class="texto">${msg.texto.replace(/\n/g, "<br>")}</div>
+        `;
+
+        msg.adjuntos.forEach(file => {
+            const url = getMediaURL(file);
+            const ext = file.split('.').pop().toLowerCase();
+
+            if (!url) {
+                html += `<div style="color:red;margin-top:6px;">⚠ No encontrado: ${file}</div>`;
+                return;
+            }
+
+            if (["jpg","jpeg","png","gif"].includes(ext)) {
+                html += `<img src="${url}" style="max-width:100%;border-radius:6px;margin-top:6px;">`;
+
+            } else if (["mp3","wav","opus"].includes(ext)) {
+                html += `
+                <div class="voice-note">
+                    <span class="mic-icon">🎤</span>
+                    <audio controls src="${url}"></audio>
+                </div>`;
+
+            } else if (ext === "mp4") {
+                html += `<video controls src="${url}" style="max-width:100%;margin-top:6px;"></video>`;
+
+            } else if (ext === "pdf") {
+                html += `<a href="${url}" target="_blank" style="display:block;margin-top:6px;font-weight:bold;">📄 ${file}</a>`;
+
+            } else if (ext === "vcf") {
+                html += `<a href="${url}" target="_blank" style="display:block;margin-top:6px;font-weight:bold;">👤 ${file}</a>`;
+            }
+        });
+
+        html += `
+          <div class="msg-time">${msg.hora} <span class="checks">✓✓</span></div>
+        </div>`;
+    });
+
+    document.getElementById("output").innerHTML = html;
+};
+</script>
+
+</body>
+</html>
